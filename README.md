@@ -9,28 +9,26 @@
 
 ---
 
-Born from the **LiteLLM supply chain attack** (March 24 2026), where threat group TeamPCP pushed credential-stealing versions directly to PyPI — bypassing git tags, passing all standard integrity checks, and potentially reaching 97M monthly download users before being yanked.
-
-safepip would have blocked it in 487ms, before a single file was written to disk.
+PyPI packages can be hijacked, tampered in transit, or silently backdoored through malicious wheels that pass every standard integrity check. safepip intercepts the install flow, runs a full security suite before touching disk, and blocks anything suspicious.
 
 ---
 
 ## What it catches
 
-| Check | Catches | LiteLLM signal |
-|---|---|---|
-| Git tag divergence | Version on PyPI with no matching GitHub tag | ✅ 1.82.8 had no tag |
-| `.pth` file scan | Wheels with `import` in `.pth` files — auto-executes on every Python start | ✅ `litellm_init.pth` |
-| Obfuscated code | `exec(base64.b64decode(...))`, double encoding, AST-level dynamic exec | ✅ Double b64 payload |
-| Multi-source hash consensus | PyPI JSON API + Simple API + direct download — all three SHA-256s must agree | MITM / CDN injection |
-| RECORD manifest integrity | Every file in the wheel vs its declared hash | Zip tampering in transit |
-| Release timestamp delta | PyPI upload vs git tag creation time — under 1 min = suspicious | Credential-stolen rush push |
-| PyPI provenance | OIDC attestation — published from reproducible CI? | Manual `twine upload` |
-| Lockfile verification | Wheel SHA-256 against `~/.safepip/safepip.lock` — zero network on repeat installs | Any post-lock change |
-| Import sandbox | `import <pkg>` in isolated subprocess — no credentials, audit hook on all syscalls | Clean-looking malware |
-| Honeypot bait | Fake AWS/SSH/Kube/GCP credentials in sandbox — read bait + network call = caught | Env-conditional malware |
-| Post-install RECORD diff | What pip wrote to disk vs what RECORD declared | Injected extra files |
-| Post-install `.pth` audit | Scans `site-packages` after install for suspicious `.pth` files | Anything that slipped through |
+| Check | What it detects |
+|---|---|
+| Git tag divergence | Version on PyPI with no matching GitHub tag |
+| `.pth` file scan | Wheels with `import` in `.pth` files — auto-executes on every Python start |
+| Obfuscated code | `exec(base64.b64decode(...))`, double encoding, AST-level dynamic exec |
+| Multi-source hash consensus | PyPI JSON API + Simple API + direct download — all three SHA-256s must agree |
+| RECORD manifest integrity | Every file in the wheel vs its declared SHA-256 |
+| Release timestamp delta | PyPI upload vs git tag creation time — under 1 min = suspicious |
+| PyPI provenance | OIDC attestation — published from reproducible CI? |
+| Lockfile verification | Wheel SHA-256 against `~/.safepip/safepip.lock` — zero network on repeat installs |
+| Import sandbox | `import <pkg>` in isolated subprocess — no credentials, audit hook on all syscalls |
+| Honeypot bait | Fake AWS/SSH/Kube/GCP credentials in sandbox — read bait + network call = caught |
+| Post-install RECORD diff | What pip wrote to disk vs what RECORD declared |
+| Post-install `.pth` audit | Scans `site-packages` after install for suspicious `.pth` files |
 
 **Zero third-party dependencies.** safepip uses only the Python standard library. It has no supply chain of its own to attack.
 
@@ -51,10 +49,10 @@ pip install safepip
 ```bash
 # Check AND install — blocks on any critical failure
 safepip install requests
-safepip install litellm==1.82.6
+safepip install numpy==1.26.4
 
 # Check only — no install
-safepip check litellm==1.82.8
+safepip check somepackage==1.0.0
 safepip check requests --json
 
 # Audit current environment for suspicious .pth files
@@ -86,25 +84,25 @@ safepip audit
 ✅ requests==2.31.0 installed and verified.
 ```
 
-### The LiteLLM attack (validated against forensic reconstruction)
+### Malicious package (blocked)
 
 ```
-🔍 safepip: checking litellm==1.82.8 ...
+🔍 safepip: checking badpkg==2.0.0 ...
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   safepip Security Report
-  Package : litellm==1.82.8
+  Package : badpkg==2.0.0
   Risk    : CRITICAL
   Verdict : 🚨 DO NOT INSTALL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🚨 CRITICAL FAILURES:
-   • [git_tag_divergence] No git tag found for 1.82.8 on BerriAI/litellm.
-     Pushed to PyPI without a corresponding source release.
-   • [pth_files_in_wheel] MALICIOUS .pth FILE DETECTED: litellm_init.pth
+   • [git_tag_divergence] No git tag found for 2.0.0 — pushed to PyPI
+     without a corresponding source release.
+   • [pth_files_in_wheel] MALICIOUS .pth FILE DETECTED: badpkg_init.pth
      contains 'import' statements — executes on every Python process start.
-   • [obfuscated_code] exec(base64.b64decode(...)) in litellm_init.pth.
-     Double base64 encoding matches TeamPCP attack pattern exactly.
+   • [obfuscated_code] exec(base64.b64decode(...)) in badpkg_init.pth.
+     Double base64 encoding detected.
    • [sandbox_import] SUBPROCESS SPAWNED ON IMPORT: 1 child process spawned.
      Legitimate packages do not spawn processes at import time.
 
@@ -189,7 +187,7 @@ from safepip import (
 )
 import urllib.request
 
-meta = fetch_package_metadata("litellm", "1.82.8")
+meta = fetch_package_metadata("somepackage", "1.0.0")
 wheel = next(w for w in meta.wheel_urls if w["filename"].endswith(".whl"))
 with urllib.request.urlopen(wheel["url"]) as r:
     wheel_bytes = r.read()
@@ -199,7 +197,7 @@ report.results = [
     check_git_tag_divergence(meta),
     check_pth_files_in_wheel(meta),
     check_obfuscated_code(wheel_bytes, wheel["filename"]),
-    check_sandbox_import(wheel_bytes, "litellm", wheel["filename"]),
+    check_sandbox_import(wheel_bytes, meta.name, wheel["filename"]),
 ]
 print(report.summary())
 
@@ -228,7 +226,7 @@ if not result.passed:
 ## How the checks work
 
 ### Git tag divergence
-Queries the GitHub Tags API and checks whether the PyPI version maps to any tag (`1.2.3`, `v1.2.3`, `release-1.2.3`). In the LiteLLM attack, 1.82.7 and 1.82.8 were pushed with stolen credentials — no tag was ever created on the GitHub repository.
+Queries the GitHub Tags API and checks whether the PyPI version maps to any tag (`1.2.3`, `v1.2.3`, `release-1.2.3`). A version published to PyPI without a corresponding git tag is a strong signal of a credential-stolen push — no legitimate release process skips tagging.
 
 ### `.pth` file scan
 Downloads the wheel into memory, verifies its SHA-256, then inspects every `.pth` file for lines starting with `import`. Python's `site` module executes these on every interpreter startup — including `pip`, `python -c`, and IDE language servers. A `.pth` file with `import` has essentially no legitimate use.
@@ -374,8 +372,6 @@ python -m pytest -v                              # 66 tests, ~0.1s
 pip install pytest-cov
 python -m pytest --cov=safepip --cov-report=term-missing
 ```
-
-The suite includes `TestLiteLLMAttackSimulation` — a forensically accurate reconstruction of the litellm 1.82.8 attack wheel (double-base64 payload in `litellm_init.pth`) that verifies all four independent checks fire on it.
 
 ---
 

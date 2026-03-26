@@ -8,3 +8,4 @@ build/
 *.tar.gz
 *.pyc
 .DS_Store
+cre.txt
