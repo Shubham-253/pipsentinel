@@ -361,8 +361,7 @@ This is intentional and non-negotiable. A security tool with dependencies has a 
 
 ```bash
 pip install pytest
-python -m pytest -v                              # 74 unit tests, ~0.1s
-python -m pytest test_realworld.py -v            # 72 real-world tests, ~45s (requires network)
+python -m pytest -v        # 148 tests: 76 unit + 72 real-world against live PyPI (~45s)
 
 pip install pytest-cov
 python -m pytest --cov=pipsentinel --cov-report=term-missing
@@ -390,7 +389,6 @@ This closes the DSPy/LiteLLM-style attack: even if the target package is clean, 
 | **`pipsentinel update`** | Audits candidate upgrade versions before applying them |
 | **Typosquatting detection** | Levenshtein distance check against top-5000 PyPI packages |
 | **SBOM export** | Generate a signed software bill of materials after install |
-| **uv.lock full audit** | Run the complete 8-check suite per package (not just 3 checks) during `sync` |
 | **CI mode** | `--fail-fast`, machine-readable exit codes, and structured JSON output for pipeline integration |
 | **Malicious maintainer heuristics** | Flag packages with recent maintainer changes or ownership transfers |
 

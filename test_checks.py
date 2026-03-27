@@ -1,15 +1,10 @@
 """
 Tests for pipsentinel security checks.
 
-Unit tests (fast, no network):
+Run with:
     python -m pytest test_checks.py -v
 
-Real-world smoke tests against actual PyPI packages (requires network, ~45s):
-    python -m pytest test_checks.py -v -m realworld
-    python -m pytest test_checks.py -v -m realworld -k "numpy"
-
-Run everything:
-    python -m pytest test_checks.py -v -m "not realworld or realworld"
+Includes real-world smoke tests that download actual PyPI wheels (~45s, requires network).
 """
 
 from __future__ import annotations
@@ -909,13 +904,9 @@ class TestBuildLockEntry(unittest.TestCase):
         self.assertEqual(entry.wheel_sha256, hashlib.sha256(wheel).hexdigest())
 
 
-# ── Real-world smoke tests (requires network) ─────────────────────────────────
-#
-# These download actual PyPI wheels and run checks against known-good packages.
-# A critical failure here means a false positive — a regression to fix before publishing.
-#
-# Run with:  pytest test_checks.py -v -m realworld
-# Skip with: pytest test_checks.py -v -m "not realworld"   (default CI behaviour)
+# ── Real-world smoke tests ────────────────────────────────────────────────────
+# Downloads actual PyPI wheels and runs all checks against known-good packages.
+# A critical failure here means a false positive — fix before publishing.
 
 MUST_PASS = [
     # HTTP / networking
@@ -964,7 +955,6 @@ def _download_wheel(meta) -> tuple[bytes, dict] | tuple[None, None]:
         return r.read(), wheel_entry
 
 
-@pytest.mark.realworld
 @pytest.mark.parametrize("package,version", MUST_PASS)
 def test_no_false_positive_critical(package, version):
     """
@@ -993,7 +983,6 @@ def test_no_false_positive_critical(package, version):
     )
 
 
-@pytest.mark.realworld
 @pytest.mark.parametrize("package,version", MUST_PASS)
 def test_git_tag_exists(package, version):
     """
@@ -1012,7 +1001,6 @@ def test_git_tag_exists(package, version):
     )
 
 
-@pytest.mark.realworld
 @pytest.mark.parametrize("package,version", MUST_PASS)
 def test_hash_consensus(package, version):
     """
