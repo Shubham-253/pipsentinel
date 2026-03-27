@@ -21,7 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      id-token: write  # required for OIDC trusted publishing
+      id-token: write   # required for OIDC trusted publishing
+      attestations: write  # required for sigstore provenance attestation
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,3 +31,5 @@ jobs:
       - run: pip install build
       - run: python -m build
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true

@@ -5,7 +5,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](#zero-dependencies)
 [![Tests](https://img.shields.io/badge/tests-66%20passing-brightgreen.svg)](#testing)
-[![Version](https://img.shields.io/badge/version-0.2.3-blue.svg)](#)
+[![Version](https://img.shields.io/badge/version-0.2.4-blue.svg)](#)
 
 ---
 
@@ -25,7 +25,7 @@ PyPI packages can be hijacked, tampered in transit, or silently backdoored throu
 | Release timestamp delta | PyPI upload vs git tag creation time — under 1 min = suspicious |
 | PyPI provenance | OIDC attestation — published from reproducible CI? |
 | Lockfile verification | Wheel SHA-256 against `~/.pipsentinel/pipsentinel.lock` — zero network on repeat installs |
-| Import sandbox | `import <pkg>` in isolated subprocess — no credentials, audit hook on all syscalls |
+| Import sandbox | `import <pkg>` in isolated subprocess — stripped credentials, audit hook on all syscalls |
 | Honeypot bait | Fake AWS/SSH/Kube/GCP credentials in sandbox — read bait + network call = caught |
 | Post-install RECORD diff | What pip wrote to disk vs what RECORD declared |
 | Post-install `.pth` audit | Scans `site-packages` after install for suspicious `.pth` files |
@@ -51,6 +51,14 @@ pip install pipsentinel
 pipsentinel install requests
 pipsentinel install numpy==1.26.4
 
+# Install all packages from a requirements file
+pipsentinel install -r requirements.txt
+
+# Audit uv.lock packages before running uv sync
+pipsentinel sync
+pipsentinel sync --lockfile path/to/uv.lock
+pipsentinel sync --force          # run uv sync even if checks fail
+
 # Check only — no install
 pipsentinel check somepackage==1.0.0
 pipsentinel check requests --json
@@ -73,14 +81,16 @@ pipsentinel audit
 
 ✅ PASSED CHECKS:
    • [git_tag_divergence] PyPI version 2.31.0 has a matching git tag 'v2.31.0' ✓
-   • [pth_files_in_wheel] No suspicious .pth files found.
+   • [pth_files_in_wheel] No suspicious .pth files found. (0 .pth file(s) scanned)
    • [wheel_record_integrity] RECORD integrity verified: all 23 declared files match.
    • [obfuscated_code] No obfuscation patterns detected.
    • [sandbox_import] Sandbox clean: import completed (0.30s) — no network calls,
                       file reads, or subprocess spawns.
+   • [release_timestamp_delta] Release delta normal: PyPI published 3 min after tag.
+   • [multi_source_hash_consensus] All 2 hash sources agree: 58cd2187...
 
 🔒 Lock entry written: ~/.pipsentinel/pipsentinel.lock
-📦 Installing: requests==2.31.0 --hash=sha256:58cd2187...
+📦 Installing: requests==2.31.0
 ✅ requests==2.31.0 installed and verified.
 ```
 
@@ -103,8 +113,6 @@ pipsentinel audit
      contains 'import' statements — executes on every Python process start.
    • [obfuscated_code] exec(base64.b64decode(...)) in badpkg_init.pth.
      Double base64 encoding detected.
-   • [sandbox_import] SUBPROCESS SPAWNED ON IMPORT: 1 child process spawned.
-     Legitimate packages do not spawn processes at import time.
 
 🚫 Installation BLOCKED.
 ```
@@ -113,54 +121,41 @@ pipsentinel audit
 
 ## User flow
 
-```mermaid
-flowchart TD
-    START(["pipsentinel install pkg==ver"])
-    META["Fetch PyPI metadata\n(name, version, wheel URLs)"]
-    LOCK_HIT{"Lockfile\nhit?"}
-    LOCK_VERIFY["Verify wheel SHA-256\nagainst local lock"]
-    LOCK_FAIL(["BLOCKED\nlockfile mismatch"])
-    FULL_SUITE["Run full check suite"]
-
-    subgraph CHECKS ["Pre-install checks"]
-        C1["① Multi-source hash consensus\nJSON API + Simple API + download"]
-        C2["② RECORD manifest integrity\nevery file vs declared SHA-256"]
-        C3["③ Obfuscated code\nregex + AST scan of .py / .pth"]
-        C4["④ .pth file scan\nimport lines = auto-exec malware"]
-        C5["⑤ Git tag divergence\nPyPI version exists on GitHub?"]
-        C6["⑥ Timestamp delta\npublish before / <1 min after tag?"]
-        C7["⑦ PyPI provenance\nOIDC attestation present?"]
-    end
-
-    REPORT["SecurityReport\nSAFE / MODERATE / CRITICAL"]
-    GATE{"Critical\nfailures?"}
-    BLOCKED(["BLOCKED\ninstallation aborted"])
-    WRITE_LOCK["Write lockfile entry\nwheel SHA-256 + per-file RECORD"]
-    PIP["pip install\n--require-hashes sha256:..."]
-
-    subgraph POST ["Post-install audit"]
-        P1["RECORD diff\ndisk vs declared files"]
-        P2[".pth audit\nscan site-packages"]
-    end
-
-    DONE(["✅ Installed and verified"])
-    ALERT(["🚨 POST-INSTALL ANOMALY\nRotate credentials"])
-
-    START --> META
-    META --> LOCK_HIT
-    LOCK_HIT -- yes --> LOCK_VERIFY
-    LOCK_VERIFY -- mismatch --> LOCK_FAIL
-    LOCK_VERIFY -- ok --> PIP
-    LOCK_HIT -- no --> FULL_SUITE
-    FULL_SUITE --> C1 & C2 & C3 & C4 & C5 & C6 & C7
-    C1 & C2 & C3 & C4 & C5 & C6 & C7 --> REPORT
-    REPORT --> GATE
-    GATE -- yes --> BLOCKED
-    GATE -- no --> WRITE_LOCK
-    WRITE_LOCK --> PIP
-    PIP --> POST
-    P1 & P2 --> DONE
-    P1 & P2 -- anomaly --> ALERT
+```
+pipsentinel install pkg==ver
+        │
+        ▼
+  Fetch PyPI metadata
+        │
+        ▼
+  Lockfile hit? ──yes──► Verify wheel SHA-256 against local lock
+        │                        │                    │
+        no                    match                mismatch
+        │                        │                    │
+        ▼                        ▼                    ▼
+  Full check suite          pip install           BLOCKED
+  ┌─────────────────┐            │
+  │ ① Hash consensus│            ▼
+  │ ② RECORD integrity│    Post-install audit
+  │ ③ Obfuscated code│    ┌──────────────────┐
+  │ ④ .pth file scan│    │ RECORD diff       │
+  │ ⑤ Git tag check │    │ .pth site scan    │
+  │ ⑥ Timestamp delta│   └──────────────────┘
+  │ ⑦ PyPI provenance│          │           │
+  └─────────────────┘       verified     anomaly
+        │                        │           │
+        ▼                        ▼           ▼
+  SecurityReport           ✅ Done     🚨 Rotate creds
+        │
+  Critical failures? ──yes──► BLOCKED
+        │
+        no
+        │
+        ▼
+  Write lockfile entry
+        │
+        ▼
+  pip install pkg==ver
 ```
 
 ---
@@ -216,9 +211,8 @@ if not result.passed:
 - name: Secure install
   run: |
     pip install pipsentinel
-    cat requirements.txt | xargs -n1 pipsentinel install
-    pipsentinel audit
-    # exits 1 on critical failure → blocks the workflow
+    pipsentinel install -r requirements.txt   # scan + install all packages
+    pipsentinel audit                          # exits 1 on critical failure
 ```
 
 ---
@@ -279,7 +273,7 @@ Measured against live PyPI:
 | 20 packages, 4 threads | ~8s |
 | Repeat install (lockfile hit) | ~200ms |
 
-Phase breakdown per package: metadata 141ms · download 44ms · static checks 138ms · sandbox 164ms.
+Phase breakdown per package: metadata ~140ms · wheel download ~50ms · static checks ~130ms · sandbox ~160ms.
 
 For a typical `pip install` of 10 packages (8–15s on a fast connection), pipsentinel adds ~30–60% overhead on first install. Repeat installs are negligible.
 
@@ -300,30 +294,30 @@ Use pipsentinel alongside `pip-audit` (known CVEs), dependency lockfiles, and re
 
 ## Architecture
 
-```mermaid
-graph TD
-    CLI["cli.py\ncli entry point\ninstall / check / audit"]
-    INSTALLER["installer.py\nsafe_install()\norchestrator"]
-    CHECKS["checks.py\nall check functions\n9 pre-install · 2 post-install"]
-    SANDBOX["sandbox.py\nrun_import_sandbox()\nsubprocess isolation"]
-    HONEYPOT["honeypot.py\npopulate_honeypot_home()\nfake credentials"]
-    LOCKFILE["lockfile.py\nLockfileManager\n~/.pipsentinel/pipsentinel.lock"]
-    REPORT["report.py\nSecurityReport\nhuman + JSON output"]
-    PIP["pip subprocess\n--require-hashes"]
-    PYPI["PyPI\nJSON API · Simple API\nwheel download"]
-    GITHUB["GitHub API\ntags · commit timestamps"]
-
-    CLI --> INSTALLER
-    CLI --> CHECKS
-    INSTALLER --> CHECKS
-    INSTALLER --> LOCKFILE
-    INSTALLER --> SANDBOX
-    INSTALLER --> REPORT
-    INSTALLER --> PIP
-    SANDBOX --> HONEYPOT
-    CHECKS --> PYPI
-    CHECKS --> GITHUB
-    LOCKFILE -. "fast path\n(repeat install)" .-> INSTALLER
+```
+                        cli.py
+                     (install/check/audit/sync)
+                           │
+                           ▼
+                      installer.py
+                   (safe_install orchestrator)
+                    ┌──────┼──────────┐
+                    │      │          │
+                    ▼      ▼          ▼
+               checks.py  lockfile.py  sandbox.py
+               (all checks) (lock I/O) (subprocess)
+                    │                    │
+              ┌─────┴─────┐             ▼
+              ▼           ▼         honeypot.py
+            PyPI       GitHub      (fake creds)
+          (JSON API,  (Tags API,
+        Simple API,  timestamps)
+        wheel DL)
+                    │
+                    ▼
+                 report.py
+              (SecurityReport,
+              human + JSON output)
 ```
 
 ### Module responsibilities
@@ -336,7 +330,7 @@ pipsentinel/
 ├── sandbox.py    # process-level import sandbox with audit hooks
 ├── honeypot.py   # fake credential generation + exfiltration sequence detection
 ├── lockfile.py   # ~/.pipsentinel/pipsentinel.lock management
-├── installer.py  # orchestrates checks → pip install --require-hashes
+├── installer.py  # orchestrates checks → pip install (hash verified internally)
 ├── report.py     # SecurityReport + human/JSON output
 └── cli.py        # pipsentinel install / check / audit
 ```

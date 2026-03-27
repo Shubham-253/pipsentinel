@@ -36,6 +36,7 @@ from .checks import (
     check_release_timestamp_delta,
     check_post_install_record_diff,
 )
+from .sandbox import check_sandbox_import
 from .lockfile import LockfileManager, build_lock_entry, verify_against_lock
 from .report import SecurityReport
 
@@ -150,6 +151,9 @@ def safe_install(
             check_obfuscated_code(wheel_bytes, wheel_entry["filename"])
         )
         report.results.append(check_pth_files_in_wheel(meta))
+        report.results.append(
+            check_sandbox_import(wheel_bytes, meta.name, wheel_entry["filename"])
+        )
     else:
         report.results.append(check_pth_files_in_wheel(meta))
 

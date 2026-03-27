@@ -19,7 +19,19 @@ import sys
 import tomllib
 from pathlib import Path
 
-from .checks import fetch_package_metadata, check_git_tag_divergence, check_pth_files_in_wheel, check_pypi_provenance, check_post_install_pth
+from .checks import (
+    fetch_package_metadata,
+    check_git_tag_divergence,
+    check_pth_files_in_wheel,
+    check_pypi_provenance,
+    check_post_install_pth,
+    check_multi_source_hash_consensus,
+    check_wheel_record_integrity,
+    check_obfuscated_code,
+    check_release_timestamp_delta,
+    check_installed_obfuscation,
+)
+from .sandbox import check_sandbox_import
 from .installer import safe_install, safe_install_requirements
 from .report import SecurityReport
 
@@ -131,11 +143,32 @@ def cmd_check(args: argparse.Namespace) -> int:
         return 1
 
     report = SecurityReport(package=meta.name, version=meta.version)
-    report.results = [
-        check_git_tag_divergence(meta),
-        check_pth_files_in_wheel(meta),
-        check_pypi_provenance(meta),
-    ]
+
+    # Hash consensus — no wheel download needed
+    report.results.append(check_multi_source_hash_consensus(meta))
+
+    # Download wheel for deep inspection
+    wheel_entry = next((w for w in meta.wheel_urls if w["filename"].endswith(".whl")), None)
+    wheel_bytes = None
+    if wheel_entry:
+        try:
+            import urllib.request
+            with urllib.request.urlopen(wheel_entry["url"], timeout=30) as resp:
+                wheel_bytes = resp.read()
+        except Exception as e:
+            print(f"  ⚠️  Could not download wheel for deep inspection: {e}")
+
+    if wheel_bytes and wheel_entry:
+        report.results.append(check_wheel_record_integrity(wheel_bytes, wheel_entry["filename"]))
+        report.results.append(check_obfuscated_code(wheel_bytes, wheel_entry["filename"]))
+        report.results.append(check_pth_files_in_wheel(meta))
+        report.results.append(check_sandbox_import(wheel_bytes, meta.name, wheel_entry["filename"]))
+    else:
+        report.results.append(check_pth_files_in_wheel(meta))
+
+    report.results.append(check_git_tag_divergence(meta))
+    report.results.append(check_release_timestamp_delta(meta))
+    report.results.append(check_pypi_provenance(meta))
 
     if args.json:
         print(report.to_json())
@@ -146,16 +179,39 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_audit(_args: argparse.Namespace) -> int:
-    print("\n🔎 pipsentinel: auditing site-packages for suspicious .pth files ...\n")
-    result = check_post_install_pth()
-    print(result)
-    if not result.passed:
+    print("\n🔎 pipsentinel: full audit of site-packages ...\n")
+
+    all_passed = True
+
+    # ── 1. .pth file scan ────────────────────────────────────────────────────
+    pth_result = check_post_install_pth()
+    print(pth_result)
+    if not pth_result.passed:
+        all_passed = False
         print("\nDetail:")
-        for f in result.detail.get("suspicious_files", []):
+        for f in pth_result.detail.get("suspicious_files", []):
             print(f"  🚨 {f['path']}")
             for line in f.get("import_lines", []):
                 print(f"       import line: {line[:120]}")
-    return 0 if result.passed else 1
+
+    # ── 2. Obfuscated code scan of installed .py files ────────────────────────
+    print()
+    print("  Scanning installed .py files for obfuscation patterns ...")
+    obf_result = check_installed_obfuscation()
+    print(obf_result)
+    if not obf_result.passed:
+        all_passed = False
+        print("\nDetail:")
+        for finding in obf_result.detail.get("findings", [])[:10]:
+            print(f"  🚨 {finding['file']}")
+            print(f"       {finding['description']}")
+            if "snippet" in finding:
+                print(f"       snippet: {finding['snippet'][:120]}")
+
+    if not all_passed:
+        print("\n🚨 AUDIT FAILED — investigate the above before trusting this environment.\n")
+
+    return 0 if all_passed else 1
 
 
 def main() -> None:

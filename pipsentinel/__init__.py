@@ -28,7 +28,7 @@ from .honeypot import populate_honeypot_home
 from .lockfile import LockfileManager
 from .report import SecurityReport
 
-__version__ = "0.2.3"
+__version__ = "0.2.4"
 __all__ = [
     "safe_install",
     "check_git_tag_divergence",

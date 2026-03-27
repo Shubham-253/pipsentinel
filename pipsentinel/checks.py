@@ -1002,3 +1002,99 @@ def check_post_install_record_diff(
             "extra_on_disk": 0,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Check F — Installed obfuscation scan
+# Scans all .py files in site-packages for obfuscation patterns.
+# Run by `pipsentinel audit` to inspect what is already on disk.
+# ---------------------------------------------------------------------------
+
+def check_installed_obfuscation(site_packages_dirs: Optional[list[str]] = None) -> CheckResult:
+    """
+    Scan all installed .py files in site-packages for obfuscation patterns.
+    Uses the same regex patterns as the pre-install wheel scan.
+    """
+    name = "installed_obfuscation_scan"
+
+    if site_packages_dirs is None:
+        site_packages_dirs = site.getsitepackages()
+        try:
+            site_packages_dirs = site_packages_dirs + [site.getusersitepackages()]
+        except AttributeError:
+            pass
+
+    # For installed files only use patterns that are almost never legitimate:
+    # base64 exec/eval, double decode, os.system with network tools.
+    # Skip all subprocess patterns and AST dynamic exec checks —
+    # these produce huge false positive rates in test suites and build tools.
+    _high_confidence = {
+        "exec(base64.b64decode(...)): classic payload delivery",
+        "eval(base64.b64decode(...)): base64 eval execution",
+        "exec(__import__('base64')...): hidden import obfuscation",
+        "double base64 decode: obfuscation layer",
+        "nested b64decode calls: double obfuscation",
+        "os.system with network/shell tool: exfiltration pattern",
+    }
+    _audit_patterns = [p for p in _OBFUSCATION_PATTERNS if p[1] in _high_confidence]
+
+    findings: list[dict] = []
+    files_scanned = 0
+
+    for sp in site_packages_dirs:
+        sp_path = Path(sp)
+        if not sp_path.exists():
+            continue
+        for py_file in sp_path.rglob("*.py"):
+            # Skip pipsentinel's own files — it legitimately contains
+            # obfuscation pattern strings as part of its detection logic.
+            parts = py_file.parts
+            if any(p.startswith("pipsentinel") for p in parts):
+                continue
+            try:
+                content = py_file.read_text(errors="replace")
+            except OSError:
+                continue
+            files_scanned += 1
+
+            for pattern, description in _audit_patterns:
+                if pattern.search(content):
+                    findings.append({
+                        "file": str(py_file.relative_to(sp_path)),
+                        "type": "regex",
+                        "description": description,
+                        "snippet": _extract_snippet(content, pattern),
+                    })
+
+            blobs = _LARGE_B64_PATTERN.findall(content)
+            for blob in blobs:
+                try:
+                    decoded = base64.b64decode(blob + "==")
+                    if len(decoded) > 100:
+                        findings.append({
+                            "file": str(py_file.relative_to(sp_path)),
+                            "type": "large_base64_blob",
+                            "description": "Large embedded base64 blob in installed file",
+                            "encoded_length": len(blob),
+                            "decoded_length": len(decoded),
+                        })
+                        break  # one report per file is enough
+                except Exception:
+                    pass
+
+            # Skip AST dynamic import check for installed files —
+            # eval/exec with computed args is far too common in legitimate code.
+
+    if findings:
+        return CheckResult(
+            name, False, "critical",
+            f"OBFUSCATION DETECTED: {len(findings)} suspicious pattern(s) found across "
+            f"{files_scanned} installed file(s). See detail for affected files.",
+            {"findings": findings[:20], "files_scanned": files_scanned},
+        )
+
+    return CheckResult(
+        name, True, "info",
+        f"Installed obfuscation scan clean: {files_scanned} .py file(s) scanned, none suspicious.",
+        {"files_scanned": files_scanned},
+    )

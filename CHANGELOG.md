@@ -4,6 +4,19 @@ All notable changes to pipsentinel are documented here.
 
 ---
 
+## [0.2.4] — 2026-03-28
+
+### Added
+- `pipsentinel check` now runs the full 8-check suite (was previously 3 checks only) — downloads wheel, verifies RECORD, scans for obfuscated code, runs import sandbox
+- `pipsentinel audit` now includes an obfuscated code scan of all installed `.py` files in site-packages (12,000+ files scanned), in addition to the `.pth` audit
+- Import sandbox (`sandbox.py`) and honeypot bait (`honeypot.py`) are now wired into the `pipsentinel install` flow — were implemented but not called in prior versions
+
+### Fixed
+- `project_urls` key matching is now case-insensitive — fixes false "no source repo" warning for packages like numpy that switched to lowercase keys
+- PyPI publish workflow now requests sigstore provenance attestation (`attestations: true`) — pipsentinel will pass its own provenance check from next release onward
+
+---
+
 ## [0.2.3] — 2026-03-27
 
 ### Added
