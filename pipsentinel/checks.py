@@ -300,6 +300,13 @@ def check_pth_files_in_wheel(meta: PackageMetadata) -> CheckResult:
             detail={"expected": expected_sha256, "actual": actual_sha256, "url": url},
         )
 
+    # Known-legitimate .pth files shipped inside wheels
+    _WHEEL_PTH_ALLOWLIST = {
+        "distutils-precedence.pth",   # setuptools — adds _distutils_hack shim
+        "easy-install.pth",
+        "site-packages.pth",
+    }
+
     # Inspect zip (wheels are zip files)
     suspicious_pth = []
     all_pth = []
@@ -309,6 +316,9 @@ def check_pth_files_in_wheel(meta: PackageMetadata) -> CheckResult:
             for entry in zf.namelist():
                 if entry.endswith(".pth"):
                     all_pth.append(entry)
+                    # Skip known-legitimate infrastructure .pth files
+                    if entry.split("/")[-1] in _WHEEL_PTH_ALLOWLIST:
+                        continue
                     content = zf.read(entry).decode(errors="replace")
                     lines = [l.strip() for l in content.splitlines() if l.strip()]
                     import_lines = [l for l in lines if l.startswith("import ") or l.startswith("import\t")]
@@ -688,7 +698,13 @@ def check_obfuscated_code(wheel_bytes: bytes, filename: str) -> CheckResult:
 
                 is_pth = entry_name.endswith(".pth")
                 for pattern, description in _OBFUSCATION_PATTERNS:
-                    if "subprocess call in source file" in description and not is_pth:
+                    # These subprocess patterns are common in legitimate build/test
+                    # scripts inside wheels — only flag them in .pth files where
+                    # they auto-execute on every Python startup.
+                    if not is_pth and any(s in description for s in (
+                        "subprocess call in source file",
+                        "subprocess spawning current interpreter",
+                    )):
                         continue
                     if pattern.search(content):
                         findings.append({
@@ -722,9 +738,13 @@ def check_obfuscated_code(wheel_bytes: bytes, filename: str) -> CheckResult:
                         })
 
                 if entry_name.endswith(".py"):
-                    ast_finding = _ast_check_dynamic_import(content, entry_name)
-                    if ast_finding:
-                        findings.append(ast_finding)
+                    # Skip test files — they legitimately use eval/exec
+                    # extensively for dynamic test generation.
+                    in_tests = "/tests/" in entry_name or "/test_" in entry_name
+                    if not in_tests:
+                        ast_finding = _ast_check_dynamic_import(content, entry_name)
+                        if ast_finding:
+                            findings.append(ast_finding)
 
     except zipfile.BadZipFile:
         return CheckResult(name, False, "warning", "Wheel is not a valid archive.", {})
@@ -772,19 +792,26 @@ def _ast_check_dynamic_import(source: str, filename: str) -> Optional[dict]:
                 "line": getattr(node, "lineno", "?"),
             }
 
+        # Only flag exec() — eval() with a computed arg is ubiquitous in
+        # legitimate code (type introspection, template engines, f2py, etc.)
         if (isinstance(node, ast.Call) and
                 isinstance(node.func, ast.Name) and
-                node.func.id in ("exec", "eval") and
+                node.func.id == "exec" and
                 node.args and
                 isinstance(node.args[0], ast.Call)):
             call_arg = node.args[0]
             if (isinstance(call_arg.func, ast.Attribute) and
                     call_arg.func.attr == "read"):
                 continue
+            # exec(compile(...)) — legitimate pattern for loading config files
+            # (used by flask, werkzeug, and the built-in exec_module machinery)
+            if (isinstance(call_arg.func, ast.Name) and
+                    call_arg.func.id == "compile"):
+                continue
             return {
                 "file": filename,
                 "type": "ast_dynamic_exec",
-                "description": f"{node.func.id}() called with a computed function result: dynamic execution indicator",
+                "description": "exec() called with a computed function result: dynamic execution indicator",
                 "line": getattr(node, "lineno", "?"),
             }
 

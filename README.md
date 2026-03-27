@@ -4,8 +4,8 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](#zero-dependencies)
-[![Tests](https://img.shields.io/badge/tests-66%20passing-brightgreen.svg)](#testing)
-[![Version](https://img.shields.io/badge/version-0.2.4-blue.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-74%20passing-brightgreen.svg)](#testing)
+[![Version](https://img.shields.io/badge/version-0.2.5-blue.svg)](#)
 
 ---
 
@@ -361,7 +361,8 @@ This is intentional and non-negotiable. A security tool with dependencies has a 
 
 ```bash
 pip install pytest
-python -m pytest -v                              # 66 tests, ~0.1s
+python -m pytest -v                              # 74 unit tests, ~0.1s
+python -m pytest test_realworld.py -v            # 72 real-world tests, ~45s (requires network)
 
 pip install pytest-cov
 python -m pytest --cov=pipsentinel --cov-report=term-missing

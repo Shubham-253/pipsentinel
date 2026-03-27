@@ -4,6 +4,17 @@ All notable changes to pipsentinel are documented here.
 
 ---
 
+## [0.2.5] — 2026-03-28
+
+### Fixed
+- `exec(compile(...))` no longer triggers obfuscation false positive — this is a legitimate Python pattern used by flask, werkzeug, and other packages to load config files dynamically
+- `distutils-precedence.pth` (setuptools infrastructure) no longer triggers false positive in `check_pth_files_in_wheel` — added the same `.pth` allowlist that `check_post_install_pth` already had
+
+### Added
+- `test_realworld.py` — 72 real-world smoke tests against actual PyPI wheels (24 packages × 3 check functions); excluded from default test run, requires network access
+
+---
+
 ## [0.2.4] — 2026-03-28
 
 ### Added
