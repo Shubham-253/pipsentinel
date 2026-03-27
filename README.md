@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](#zero-dependencies)
-[![Tests](https://img.shields.io/badge/tests-74%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-76%20passing-brightgreen.svg)](#testing)
 [![Version](https://img.shields.io/badge/version-0.2.5-blue.svg)](#)
 
 ---

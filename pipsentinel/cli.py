@@ -16,7 +16,6 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
 from .checks import (
@@ -71,6 +70,13 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 def cmd_sync(args: argparse.Namespace) -> int:
     """Check all packages in uv.lock, then run uv sync if all pass."""
+    try:
+        import tomllib
+    except ImportError:
+        print("❌ pipsentinel sync requires Python 3.11+ (tomllib is not available on Python 3.10)")
+        print("   Upgrade to Python 3.11 or later to use this command.")
+        return 1
+
     lock_file = Path(args.lockfile)
     if not lock_file.exists():
         print(f"❌ Lock file not found: {lock_file}")
