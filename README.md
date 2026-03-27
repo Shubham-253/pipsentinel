@@ -5,7 +5,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](#zero-dependencies)
 [![Tests](https://img.shields.io/badge/tests-66%20passing-brightgreen.svg)](#testing)
-[![Version](https://img.shields.io/badge/version-0.2.1-blue.svg)](#)
+[![Version](https://img.shields.io/badge/version-0.2.3-blue.svg)](#)
 
 ---
 
@@ -372,6 +372,32 @@ python -m pytest -v                              # 66 tests, ~0.1s
 pip install pytest-cov
 python -m pytest --cov=pipsentinel --cov-report=term-missing
 ```
+
+---
+
+## Future Plans
+
+### Transitive dependency scanning *(top priority)*
+
+**The current gap:** pipsentinel checks the package you explicitly install, but not its transitive dependencies. If `requests` depends on `certifi`, and `certifi` is compromised, the attack still lands — pipsentinel never saw it.
+
+**Proposed fix:**
+1. Run `pip install --dry-run <package>` to enumerate the full dependency closure before installing anything
+2. Run the full check suite on every package in the closure
+3. Only proceed with installation if the entire graph passes
+
+This closes the DSPy/LiteLLM-style attack: even if the target package is clean, a backdoored transitive dep (e.g. a compromised LLM client library pulled in silently) will be caught before it touches disk.
+
+### Other planned improvements
+
+| Feature | Description |
+|---|---|
+| **`pipsentinel update`** | Audits candidate upgrade versions before applying them |
+| **Typosquatting detection** | Levenshtein distance check against top-5000 PyPI packages |
+| **SBOM export** | Generate a signed software bill of materials after install |
+| **uv.lock full audit** | Run the complete 8-check suite per package (not just 3 checks) during `sync` |
+| **CI mode** | `--fail-fast`, machine-readable exit codes, and structured JSON output for pipeline integration |
+| **Malicious maintainer heuristics** | Flag packages with recent maintainer changes or ownership transfers |
 
 ---
 

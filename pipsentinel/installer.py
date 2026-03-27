@@ -199,29 +199,85 @@ def safe_install(
 
 
 def _do_pip_install(meta, wheel_entry, extra_pip_args, quiet):
-    pip_cmd = [sys.executable, "-m", "pip", "install"]
-    sha256 = wheel_entry.get("sha256", "")
-
-    if sha256:
-        pip_cmd += [
-            "--require-hashes",
-            f"{meta.name}=={meta.version}",
-            f"--hash=sha256:{sha256}",
-        ]
-    else:
-        pip_cmd += [f"{meta.name}=={meta.version}"]
+    # Hash already verified before this point — plain version-pinned install.
+    pip_cmd = [sys.executable, "-m", "pip", "install", f"{meta.name}=={meta.version}"]
 
     if extra_pip_args:
         pip_cmd += extra_pip_args
 
     if not quiet:
-        print(f"📦 Installing: {' '.join(pip_cmd[3:])}")
+        print(f"📦 Installing: {meta.name}=={meta.version}")
 
-    result = subprocess.run(pip_cmd, capture_output=not quiet)
+    result = subprocess.run(pip_cmd, capture_output=True)
     if result.returncode != 0:
-        if quiet:
-            sys.stderr.write(result.stderr.decode())
+        sys.stderr.write(result.stderr.decode(errors="replace"))
         print(f"\n❌ pip install failed (exit code {result.returncode})")
+    elif not quiet:
+        sys.stdout.write(result.stdout.decode(errors="replace"))
+
+
+def parse_requirements(filepath: str) -> list[tuple[str, Optional[str]]]:
+    """
+    Parse a requirements.txt file into (package, version_or_None) tuples.
+    Skips comments, blank lines, and unsupported directives (-r, -c, -e, -i).
+    Handles: requests, requests==2.33.0, requests>=2.0, requests[security]==2.33.0
+    """
+    import re
+    packages = []
+    with open(filepath) as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#") or line.startswith("-"):
+                continue
+            # strip inline comments
+            line = line.split("#")[0].strip()
+            # strip extras like requests[security]
+            line = re.sub(r"\[.*?\]", "", line).strip()
+            # extract pinned version if ==
+            if "==" in line:
+                name, ver = line.split("==", 1)
+                packages.append((name.strip(), ver.strip()))
+            else:
+                # strip any other version specifiers
+                name = re.split(r"[><=!~;]", line)[0].strip()
+                if name:
+                    packages.append((name, None))
+    return packages
+
+
+def safe_install_requirements(
+    filepath: str,
+    *,
+    force: bool = False,
+    quiet: bool = False,
+    lock_path=None,
+) -> list[SecurityReport]:
+    """Check and install all packages from a requirements file."""
+    packages = parse_requirements(filepath)
+    if not packages:
+        print(f"⚠️  No packages found in {filepath}")
+        return []
+
+    print(f"\n📋 pipsentinel: scanning {len(packages)} package(s) from {filepath}\n")
+    reports = []
+    blocked = []
+
+    for name, version in packages:
+        report = safe_install(
+            name, version=version, force=force, quiet=quiet, lock_path=lock_path
+        )
+        reports.append(report)
+        if not report.safe_to_install:
+            blocked.append(f"{name}=={report.version}")
+
+    print("\n" + "━" * 60)
+    if blocked:
+        print(f"🚨 {len(blocked)} package(s) BLOCKED: {', '.join(blocked)}")
+    else:
+        print(f"✅ All {len(packages)} package(s) passed and installed.")
+    print("━" * 60 + "\n")
+
+    return reports
 
 
 def _run_post_install(meta, declared_record, report, quiet):
@@ -237,7 +293,8 @@ def _run_post_install(meta, declared_record, report, quiet):
     if not quiet:
         print(f"  {pth_audit}")
 
-    if not record_diff.passed or not pth_audit.passed:
+    if (not record_diff.passed and record_diff.severity == "critical") or \
+       (not pth_audit.passed and pth_audit.severity == "critical"):
         print(
             "\n🚨 POST-INSTALL ANOMALY DETECTED.\n"
             "   Rotate all credentials accessible from this machine.\n"

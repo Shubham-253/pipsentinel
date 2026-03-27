@@ -115,9 +115,11 @@ def fetch_package_metadata(package: str, version: Optional[str] = None) -> Packa
         pass  # Not all packages have provenance — that's itself a signal
 
     # Source URL from project_urls or home_page
+    # Normalize keys to lowercase — PyPI metadata uses inconsistent casing
+    # across versions (e.g. numpy 1.26.x uses "Source", 2.4.x uses "source").
     source_url = None
-    project_urls = info.get("project_urls") or {}
-    for key in ("Source", "Source Code", "Homepage", "Repository", "Code"):
+    project_urls = {k.lower(): v for k, v in (info.get("project_urls") or {}).items()}
+    for key in ("source", "source code", "homepage", "repository", "code"):
         if key in project_urls and "github.com" in (project_urls[key] or ""):
             source_url = project_urls[key]
             break
@@ -194,7 +196,20 @@ def check_git_tag_divergence(meta: PackageMetadata) -> CheckResult:
     version = meta.version
 
     # Common tag formats: v1.2.3, 1.2.3, release-1.2.3
-    candidates = [version, f"v{version}", f"release-{version}", f"release/{version}"]
+    # Also handle date-based versions: PyPI may use 2026.2.25 while GitHub tag is 2026.02.25
+    def _date_pad(v: str) -> str:
+        """Zero-pad month/day in date-based versions like 2026.2.25 → 2026.02.25."""
+        parts = v.split(".")
+        if len(parts) == 3 and parts[0].isdigit() and len(parts[0]) == 4:
+            return f"{parts[0]}.{parts[1].zfill(2)}.{parts[2].zfill(2)}"
+        return v
+
+    padded = _date_pad(version)
+    candidates = list(dict.fromkeys([  # preserve order, deduplicate
+        version, f"v{version}",
+        padded, f"v{padded}",
+        f"release-{version}", f"release/{version}",
+    ]))
     matched_tag = next((c for c in candidates if c in tag_names), None)
 
     if matched_tag:
@@ -411,6 +426,13 @@ def check_post_install_pth(site_packages_dirs: Optional[list[str]] = None) -> Ch
     if site_packages_dirs is None:
         site_packages_dirs = site.getsitepackages() + [site.getusersitepackages()]
 
+    # Known-legitimate .pth files installed by trusted Python infrastructure
+    ALLOWLISTED_PTH = {
+        "distutils-precedence.pth",   # setuptools — adds _distutils_hack shim
+        "easy-install.pth",           # legacy setuptools
+        "site-packages.pth",          # standard path extension
+    }
+
     suspicious = []
     scanned = 0
 
@@ -419,6 +441,8 @@ def check_post_install_pth(site_packages_dirs: Optional[list[str]] = None) -> Ch
         if not sp_path.exists():
             continue
         for pth_file in sp_path.glob("*.pth"):
+            if pth_file.name in ALLOWLISTED_PTH:
+                continue
             scanned += 1
             try:
                 content = pth_file.read_text(errors="replace")
