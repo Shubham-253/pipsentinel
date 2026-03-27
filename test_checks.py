@@ -1,5 +1,5 @@
 """
-Tests for safepip security checks.
+Tests for pipsentinel security checks.
 
 Run with: python -m pytest -v
 """

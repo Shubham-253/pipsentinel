@@ -1,8 +1,8 @@
 """
-safepip.lockfile — Offline hash-pinned verification.
+pipsentinel.lockfile — Offline hash-pinned verification.
 
 Design: once a package version is verified, its per-file SHA-256 manifest
-is stored in safepip.lock (JSON). All subsequent installs verify against
+is stored in pipsentinel.lock (JSON). All subsequent installs verify against
 this local record — zero network required.
 
 This eliminates the "check the check" attack: even if PyPI's API lies about
@@ -47,7 +47,7 @@ class LockEntry:
 
 class LockfileManager:
     """
-    Manages the safepip.lock file.
+    Manages the pipsentinel.lock file.
     Thread-safety: single process only; suitable for CLI use.
     """
 

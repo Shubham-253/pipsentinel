@@ -1,5 +1,5 @@
 """
-Security check implementations for safepip.
+Security check implementations for pipsentinel.
 
 Each check returns a CheckResult with:
   - passed: bool
@@ -177,7 +177,7 @@ def check_git_tag_divergence(meta: PackageMetadata) -> CheckResult:
     try:
         req = urllib.request.Request(
             tags_url,
-            headers={"Accept": "application/vnd.github+json", "User-Agent": "safepip/0.1"},
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "pipsentinel/0.2.1"},
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
             tags = json.loads(resp.read().decode())
@@ -481,7 +481,7 @@ def check_multi_source_hash_consensus(meta: PackageMetadata) -> CheckResult:
             simple_url,
             headers={
                 "Accept": "application/vnd.pypi.simple.v1+json, text/html",
-                "User-Agent": "safepip/0.2",
+                "User-Agent": "pipsentinel/0.2.1",
             },
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -794,7 +794,7 @@ def check_release_timestamp_delta(meta: PackageMetadata) -> CheckResult:
     try:
         req = urllib.request.Request(
             tags_url,
-            headers={"Accept": "application/vnd.github+json", "User-Agent": "safepip/0.2"},
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "pipsentinel/0.2.1"},
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
             tags = json.loads(resp.read().decode())
@@ -818,7 +818,7 @@ def check_release_timestamp_delta(meta: PackageMetadata) -> CheckResult:
         try:
             req = urllib.request.Request(
                 commit_url,
-                headers={"Accept": "application/vnd.github+json", "User-Agent": "safepip/0.2"},
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "pipsentinel/0.2.1"},
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
                 commit_data = json.loads(resp.read().decode())

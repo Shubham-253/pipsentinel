@@ -1,5 +1,5 @@
 """
-safepip.sandbox — Process-level import sandbox.
+pipsentinel.sandbox — Process-level import sandbox.
 
 Strategy: extract the wheel into a temp directory, then run
 `python -c "import <pkg>"` in a subprocess that has:
@@ -367,7 +367,7 @@ def run_import_sandbox(
 
 
 # ---------------------------------------------------------------------------
-# Check wrapper — returns a CheckResult like every other safepip check
+# Check wrapper — returns a CheckResult like every other pipsentinel check
 # ---------------------------------------------------------------------------
 
 def check_sandbox_import(
@@ -378,7 +378,7 @@ def check_sandbox_import(
 ) -> CheckResult:
     """
     Run the import sandbox and return a CheckResult.
-    Integrates into the existing safepip check pipeline.
+    Integrates into the existing pipsentinel check pipeline.
     """
     name = "sandbox_import"
 

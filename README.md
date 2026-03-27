@@ -9,7 +9,7 @@
 
 ---
 
-PyPI packages can be hijacked, tampered in transit, or silently backdoored through malicious wheels that pass every standard integrity check. safepip intercepts the install flow, runs a full security suite before touching disk, and blocks anything suspicious.
+PyPI packages can be hijacked, tampered in transit, or silently backdoored through malicious wheels that pass every standard integrity check. pipsentinel intercepts the install flow, runs a full security suite before touching disk, and blocks anything suspicious.
 
 ---
 
@@ -168,7 +168,7 @@ flowchart TD
 ## Python API
 
 ```python
-from safepip import safe_install, SecurityReport
+from pipsentinel import safe_install, SecurityReport
 
 # Full check suite + install
 report = safe_install("requests", version="2.31.0")
@@ -177,7 +177,7 @@ print(report.risk_level)       # "LOW"
 print(report.to_json())        # machine-readable for CI
 
 # Check only — no install
-from safepip import (
+from pipsentinel import (
     fetch_package_metadata,
     check_git_tag_divergence,
     check_pth_files_in_wheel,
@@ -202,7 +202,7 @@ report.results = [
 print(report.summary())
 
 # Post-install audit
-from safepip import check_post_install_pth
+from pipsentinel import check_post_install_pth
 result = check_post_install_pth()
 if not result.passed:
     for f in result.detail["suspicious_files"]:
@@ -281,11 +281,11 @@ Measured against live PyPI:
 
 Phase breakdown per package: metadata 141ms · download 44ms · static checks 138ms · sandbox 164ms.
 
-For a typical `pip install` of 10 packages (8–15s on a fast connection), safepip adds ~30–60% overhead on first install. Repeat installs are negligible.
+For a typical `pip install` of 10 packages (8–15s on a fast connection), pipsentinel adds ~30–60% overhead on first install. Repeat installs are negligible.
 
 ---
 
-## What safepip does not catch
+## What pipsentinel does not catch
 
 | Threat | Reason |
 |---|---|
@@ -294,7 +294,7 @@ For a typical `pip install` of 10 packages (8–15s on a fast connection), safep
 | Perfectly clean-looking malicious logic | No static analysis can catch well-written backdoors |
 | Nation-state quality attacks | Requires full VM sandboxing with OS-level syscall tracing |
 
-Use safepip alongside `pip-audit` (known CVEs), dependency lockfiles, and reproducible builds.
+Use pipsentinel alongside `pip-audit` (known CVEs), dependency lockfiles, and reproducible builds.
 
 ---
 
@@ -347,7 +347,7 @@ Every check is a pure function returning `CheckResult(name, passed, severity, me
 
 ## Zero dependencies
 
-safepip uses only the Python standard library:
+pipsentinel uses only the Python standard library:
 
 ```
 urllib.request   PyPI API + wheel downloads
@@ -359,7 +359,7 @@ site             .pth processing in sandbox
 json, re, tempfile, pathlib, ...
 ```
 
-This is intentional and non-negotiable. A security tool with dependencies has a supply chain. safepip has none.
+This is intentional and non-negotiable. A security tool with dependencies has a supply chain. pipsentinel has none.
 
 ---
 
@@ -370,7 +370,7 @@ pip install pytest
 python -m pytest -v                              # 66 tests, ~0.1s
 
 pip install pytest-cov
-python -m pytest --cov=safepip --cov-report=term-missing
+python -m pytest --cov=pipsentinel --cov-report=term-missing
 ```
 
 ---

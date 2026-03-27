@@ -592,7 +592,7 @@ def manual_smoke_requests():
 
 
 def manual_smoke_check_only():
-    """Run safepip check on numpy latest — no install."""
+    """Run pipsentinel check on numpy latest — no install."""
     import subprocess, sys
     result = subprocess.run(
         [sys.executable, "-m", "pipsentinel.cli", "check", "numpy"],

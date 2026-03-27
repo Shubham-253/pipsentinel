@@ -1,5 +1,5 @@
 """
-safepip.honeypot — Fake credential bait for the import sandbox.
+pipsentinel.honeypot — Fake credential bait for the import sandbox.
 
 The sandbox evasion problem:
   Sophisticated supply chain malware checks os.environ or reads ~/.aws/credentials
